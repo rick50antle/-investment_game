@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accounting Event Horizon Simulator</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace; }
+        #canvas-container { width: 100vw; height: 100vh; }
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #00ffcc;
+            pointer-events: none;
+            text-shadow: 0 0 10px #00ffcc;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border: 1px solid #00ffcc;
+            border-radius: 8px;
+        }
+        h1 { margin: 0 0 10px 0; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; }
+        .stat { font-size: 1rem; margin-bottom: 5px; }
+        .legend { margin-top: 15px; font-size: 0.8rem; opacity: 0.8; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 3px; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+    </style>
+</head>
+<body>
+
+<div id="ui-layer">
+    <h1>Accounting Singularity</h1>
+    <div class="stat" id="cash-display">Cash: $1000</div>
+    <div class="stat" id="equity-display">Equity: $1000</div>
+    <div class="stat" id="loan-display">Loan: $0</div>
+   
+    <div class="legend">
+        <div class="legend-item"><div class="dot" style="background:cyan; box-shadow: 0 0 5px cyan;"></div>Stock Issuance (In)</div>
+        <div class="legend-item"><div class="dot" style="background:orange; box-shadow: 0 0 5px orange;"></div>Borrowing (In)</div>
+        <div class="legend-item"><div class="dot" style="background:white; box-shadow: 0 0 5px white;"></div>Dividend (Out)</div>
+        <div class="legend-item"><div class="dot" style="background:red; box-shadow: 0 0 5px red;"></div>Loan Repayment (Out)</div>
+    </div>
+</div>
+
+<div id="canvas-container"></div>
+
+<!-- Import Three.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+    // --- Configuration ---
+    const CONFIG = {
+        particleCount: 0, // Managed dynamically
+        spawnRate: 0.05, // Chance per frame to spawn inflow
+        outflowRate: 0.01, // Chance per frame to spawn outflow
+        colors: {
+            cash: 0x00ff00,
+            equity: 0x00ffff,
+            loan: 0xff4400,
+            stockParticle: 0x00ffff,
+            loanParticle: 0xffaa00,
+            dividendParticle: 0xffffff,
+            repayParticle: 0xff0000,
+            blackHole: 0x000000,
+            accretion: 0x220033
+        }
+    };
+
+    // --- State ---
+    const STATE = {
+        cash: 1000,
+        equity: 1000,
+        loan: 0
+    };
+
+    // --- Scene Setup ---
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+   
+    // Fog for depth
+    scene.fog = new THREE.FogExp2(0x050505, 0.002);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 30, 40);
+    camera.lookAt(0, 0, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    container.appendChild(renderer.domElement);
+
+    // --- Textures & Materials ---
+    // Helper to create a glowing dot texture programmatically
+    function createGlowTexture(colorStr) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 64;
+        canvas.height = 64;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+        grad.addColorStop(0, 'white');
+        grad.addColorStop(0.2, colorStr);
+        grad.addColorStop(0.5, 'rgba(0,0,0,0.5)');
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 64, 64);
+        const tex = new THREE.CanvasTexture(canvas);
+        return tex;
+    }
+
+    // Helper for Text Labels
+    function createTextSprite(message, color) {
+        const canvas = document.createElement('canvas');
+        const size = 256;
+        canvas.width = size;
+        canvas.height = size / 2;
+        const ctx = canvas.getContext('2d');
+        ctx.font = 'Bold 40px Arial';
+        ctx.fillStyle = color;
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = 4;
+        ctx.strokeText(message, size / 2, size / 4 + 10);
+        ctx.fillText(message, size / 2, size / 4 + 10);
+       
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(10, 5, 1);
+        return sprite;
+    }
+
+    // --- Objects ---
+
+    // 1. Starfield
+    const starGeo = new THREE.BufferGeometry();
+    const starCount = 2000;
+    const starPos = new Float32Array(starCount * 3);
+    for(let i=0; i<starCount*3; i++) {
+        starPos[i] = (Math.random() - 0.5) * 300;
+    }
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({color: 0xffffff, size: 0.5, transparent: true, opacity: 0.8});
+    const starField = new THREE.Points(starGeo, starMat);
+    scene.add(starField);
+
+    // 2. Black Hole (Event Horizon)
+    const holeGeo = new THREE.SphereGeometry(4, 32, 32);
+    const holeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    const blackHole = new THREE.Mesh(holeGeo, holeMat);
+    scene.add(blackHole);
+
+    // Accretion Glow
+    const glowGeo = new THREE.PlaneGeometry(16, 16);
+    const glowMat = new THREE.MeshBasicMaterial({
+        map: createGlowTexture('rgba(100, 0, 100, 1)'),
+        transparent: true,
+        opacity: 0.6,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide
+    });
+    const accretionDisk = new THREE.Mesh(glowGeo, glowMat);
+    accretionDisk.rotation.x = -Math.PI / 2;
+    scene.add(accretionDisk);
+
+    // 3. Accounting Network Nodes
+    // Layout: Cash (Top), Equity (Bottom Right), Loan (Bottom Left)
+    const NODE_DIST = 12;
+   
+    const nodes = {
+        cash: {
+            mesh: null,
+            pos: new THREE.Vector3(0, 0, -NODE_DIST),
+            color: CONFIG.colors.cash,
+            label: "CASH",
+            baseSize: 2
+        },
+        equity: {
+            mesh: null,
+            pos: new THREE.Vector3(NODE_DIST * 0.866, 0, NODE_DIST * 0.5),
+            color: CONFIG.colors.equity,
+            label: "EQUITY",
+            baseSize: 2
+        },
+        loan: {
+            mesh: null,
+            pos: new THREE.Vector3(-NODE_DIST * 0.866, 0, NODE_DIST * 0.5),
+            color: CONFIG.colors.loan,
+            label: "LOAN",
+            baseSize: 1.5 // Start smaller
+        }
+    };
+
+    Object.keys(nodes).forEach(key => {
+        const n = nodes[key];
+        // Sphere
+        const geo = new THREE.SphereGeometry(1, 32, 32);
+        const mat = new THREE.MeshStandardMaterial({
+            color: n.color,
+            emissive: n.color,
+            emissiveIntensity: 0.5,
+            roughness: 0.2,
+            metalness: 0.8
+        });
+        n.mesh = new THREE.Mesh(geo, mat);
+        n.mesh.position.copy(n.pos);
+        scene.add(n.mesh);
+
+        // Label
+        const label = createTextSprite(n.label, '#ffffff');
+        label.position.set(n.pos.x, n.pos.y + 3.5, n.pos.z);
+        scene.add(label);
+        n.labelSprite = label;
+    });
+
+    // 4. Edges
+    const edges = {
+        stock: { start: nodes.cash, end: nodes.equity, mesh: null, activeTimer: 0 },
+        borrow: { start: nodes.cash, end: nodes.loan, mesh: null, activeTimer: 0 }
+    };
+
+    Object.keys(edges).forEach(key => {
+        const e = edges[key];
+        const points = [e.start.pos, e.end.pos];
+        const path = new THREE.LineCurve3(e.start.pos, e.end.pos);
+        const tubeGeo = new THREE.TubeGeometry(path, 1, 0.2, 8, false);
+        const tubeMat = new THREE.MeshBasicMaterial({
+            color: 0x555555,
+            transparent: true,
+            opacity: 0.3
+        });
+        e.mesh = new THREE.Mesh(tubeGeo, tubeMat);
+        scene.add(e.mesh);
+    });
+
+    // Lights
+    const ambientLight = new THREE.AmbientLight(0x404040);
+    scene.add(ambientLight);
+    const pointLight = new THREE.PointLight(0xffffff, 1, 100);
+    pointLight.position.set(0, 10, 0);
+    scene.add(pointLight);
+
+    // --- Particle System ---
+    let particles = [];
+   
+    class Particle {
+        constructor(type) {
+            this.type = type; // 'stock', 'borrow', 'dividend', 'repay'
+            this.active = true;
+            this.t = 0; // Progress
+           
+            // Visuals
+            let color, size;
+            if(type === 'stock') { color = CONFIG.colors.stockParticle; size = 0.8; }
+            else if(type === 'borrow') { color = CONFIG.colors.loanParticle; size = 1.0; }
+            else if(type === 'dividend') { color = CONFIG.colors.dividendParticle; size = 0.6; }
+            else if(type === 'repay') { color = CONFIG.colors.repayParticle; size = 0.6; }
+
+            const mat = new THREE.SpriteMaterial({
+                map: createGlowTexture(new THREE.Color(color).getStyle()),
+                blending: THREE.AdditiveBlending
+            });
+            this.mesh = new THREE.Sprite(mat);
+            this.mesh.scale.set(size, size, size);
+           
+            this.initMovement();
+            scene.add(this.mesh);
+        }
+
+        initMovement() {
+            // Inflow starts outside, goes to edges
+            // Outflow starts at nodes, goes outside
+            const radius = 40;
+            const angle = Math.random() * Math.PI * 2;
+            const height = (Math.random() - 0.5) * 10;
+
+            if (this.type === 'stock' || this.type === 'borrow') {
+                // Inflow
+                this.startPos = new THREE.Vector3(Math.cos(angle)*radius, height, Math.sin(angle)*radius);
+               
+                // Target is the center of the relevant edge
+                let nodeA, nodeB;
+                if(this.type === 'stock') { nodeA = nodes.cash; nodeB = nodes.equity; }
+                else { nodeA = nodes.cash; nodeB = nodes.loan; }
+               
+                this.targetPos = new THREE.Vector3().lerpVectors(nodeA.pos, nodeB.pos, 0.5);
+                this.mesh.position.copy(this.startPos);
+                this.speed = 0.005 + Math.random() * 0.005;
+               
+                // Spiral control
+                this.spiralOffset = Math.random() * 10;
+               
+            } else {
+                // Outflow
+                this.startPos = nodes.cash.pos.clone(); // Money leaves cash
+                // Target is outward
+                this.targetPos = new THREE.Vector3(Math.cos(angle)*radius*2, height, Math.sin(angle)*radius*2);
+                this.mesh.position.copy(this.startPos);
+                this.speed = 0.01 + Math.random() * 0.01;
+            }
+        }
+
+        update() {
+            if (!this.active) return;
+           
+            this.t += this.speed;
+
+            if (this.type === 'stock' || this.type === 'borrow') {
+                // Spiral Movement Inwards
+                // Lerp linear distance
+                const currentPos = new THREE.Vector3().lerpVectors(this.startPos, this.targetPos, this.t);
+               
+                // Add spiral swirl (perpendicular to direction)
+                if (this.t < 0.9) {
+                    const offset = Math.sin(this.t * 5 + this.spiralOffset) * (1 - this.t) * 5;
+                    currentPos.y += offset;
+                }
+
+                this.mesh.position.copy(currentPos);
+
+                // Check collision/absorb
+                if (this.t >= 1) {
+                    this.absorb();
+                }
+            } else {
+                // Linear Movement Outwards (Ejection)
+                this.mesh.position.lerpVectors(this.startPos, this.targetPos, this.t);
+                if (this.t >= 1) {
+                    this.kill();
+                }
+            }
+        }
+
+        absorb() {
+            // Update Accounting State
+            if (this.type === 'stock') {
+                STATE.cash += 50;
+                STATE.equity += 50;
+                pulseEdge('stock');
+            } else if (this.type === 'borrow') {
+                STATE.cash += 50;
+                STATE.loan += 50;
+                pulseEdge('borrow');
+            }
+            updateUI();
+            this.kill();
+        }
+
+        kill() {
+            this.active = false;
+            scene.remove(this.mesh);
+        }
+    }
+
+    // --- Logic Helpers ---
+
+    function pulseEdge(type) {
+        edges[type].activeTimer = 1.0;
+        edges[type].mesh.material.color.setHex(0xffffff);
+        edges[type].mesh.material.opacity = 1;
+    }
+
+    function processOutflows() {
+        // Dividend Logic: If cash is high, pay dividend
+        if (STATE.cash > 500 && Math.random() < CONFIG.outflowRate) {
+            STATE.cash -= 25;
+            STATE.equity -= 25;
+            particles.push(new Particle('dividend'));
+            updateUI();
+        }
+
+        // Repayment Logic: If Loan exists and cash is okay
+        if (STATE.loan > 0 && STATE.cash > 200 && Math.random() < CONFIG.outflowRate) {
+            STATE.cash -= 25;
+            STATE.loan -= 25;
+            particles.push(new Particle('repay'));
+            updateUI();
+        }
+    }
+
+    function updateNodeSizes() {
+        // Smoothly interpolate size based on value
+        // Base size + (Value / Divisor)
+        const targetScaleCash = nodes.cash.baseSize + (STATE.cash / 500);
+        const targetScaleEquity = nodes.equity.baseSize + (STATE.equity / 500);
+        const targetScaleLoan = nodes.loan.baseSize + (STATE.loan / 500);
+
+        nodes.cash.mesh.scale.lerp(new THREE.Vector3(targetScaleCash, targetScaleCash, targetScaleCash), 0.1);
+        nodes.equity.mesh.scale.lerp(new THREE.Vector3(targetScaleEquity, targetScaleEquity, targetScaleEquity), 0.1);
+        nodes.loan.mesh.scale.lerp(new THREE.Vector3(targetScaleLoan, targetScaleLoan, targetScaleLoan), 0.1);
+
+        // Update Labels positions to follow scale
+        nodes.cash.labelSprite.position.y = nodes.cash.pos.y + targetScaleCash + 1;
+        nodes.equity.labelSprite.position.y = nodes.equity.pos.y + targetScaleEquity + 1;
+        nodes.loan.labelSprite.position.y = nodes.loan.pos.y + targetScaleLoan + 1;
+    }
+
+    function updateEdgesVisuals() {
+        Object.keys(edges).forEach(k => {
+            const e = edges[k];
+            if (e.activeTimer > 0) {
+                e.activeTimer -= 0.05;
+                // Fade back to grey
+                e.mesh.material.color.lerp(new THREE.Color(0x555555), 0.1);
+                e.mesh.material.opacity = 0.3 + (e.activeTimer * 0.7);
+            }
+        });
+    }
+
+    function updateUI() {
+        document.getElementById('cash-display').innerText = `Cash: $${STATE.cash.toFixed(0)}`;
+        document.getElementById('equity-display').innerText = `Equity: $${STATE.equity.toFixed(0)}`;
+        document.getElementById('loan-display').innerText = `Loan: $${STATE.loan.toFixed(0)}`;
+    }
+
+    // --- Main Loop ---
+
+    function animate() {
+        requestAnimationFrame(animate);
+
+        // 1. Spawn Inflow Particles
+        if (Math.random() < CONFIG.spawnRate) {
+            const type = Math.random() > 0.5 ? 'stock' : 'borrow';
+            particles.push(new Particle(type));
+        }
+
+        // 2. Process Logic
+        processOutflows();
+        updateNodeSizes();
+        updateEdgesVisuals();
+
+        // 3. Update Particles
+        particles.forEach(p => p.update());
+        particles = particles.filter(p => p.active); // Cleanup
+
+        // 4. Scene Animation
+        starField.rotation.y += 0.0005;
+        accretionDisk.rotation.z -= 0.01;
+       
+        // Pulse the black hole slightly
+        const pulse = 1 + Math.sin(Date.now() * 0.002) * 0.05;
+        blackHole.scale.set(pulse, pulse, pulse);
+
+        renderer.render(scene, camera);
+    }
+
+    // Handle Resize
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Start
+    animate();
+
+</script>
+</body>
+</html>
