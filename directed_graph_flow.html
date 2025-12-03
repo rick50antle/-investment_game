@@ -61,6 +61,13 @@
         <div class="legend-item"><div class="dot" style="background:white; box-shadow: 0 0 5px white;"></div>Dividend (Out)</div>
         <div class="legend-item"><div class="dot" style="background:red; box-shadow: 0 0 5px red;"></div>Loan Repayment (Out)</div>
     </div>
+    <div id="flow-controls" style="margin-top:12px; font-size:0.9rem;">
+        <div style="margin-bottom:6px;">Stock flow (USD / month): <input id="stock-usd-month" type="number" step="1000" min="0" style="width:120px; margin-left:8px;"> <span id="stock-usd-month-display"></span></div>
+        <div style="margin-bottom:6px;">Borrow flow (USD / month): <input id="borrow-usd-month" type="number" step="1000" min="0" style="width:120px; margin-left:8px;"> <span id="borrow-usd-month-display"></span></div>
+        <div style="margin-bottom:6px;">Dividend flow (USD / month): <input id="dividend-usd-month" type="number" step="1000" min="0" style="width:120px; margin-left:8px;"> <span id="dividend-usd-month-display"></span></div>
+        <div style="margin-bottom:6px;">Repayment flow (USD / month): <input id="repay-usd-month" type="number" step="1000" min="0" style="width:120px; margin-left:8px;"> <span id="repay-usd-month-display"></span></div>
+        <div style="margin-top:8px;">Spawn chance (per frame): <input id="spawn-rate-input" type="range" min="0" max="0.2" step="0.005" style="vertical-align:middle; width:160px; margin-left:8px;"> <span id="spawn-rate-display"></span></div>
+    </div>
 </div>
 
 <div id="controls">
@@ -91,6 +98,42 @@
             accretion: 0x220033
         }
     };
+
+    // Estimated FPS and seconds per month for mapping USD/month -> per-particle value
+    const FPS_EST = 60;
+    const SECS_PER_MONTH = 30 * 24 * 3600; // 30 days
+
+    // USD/month targets for each flow type. These are editable by the user via the UI.
+    // We'll initialize them so default behavior is close to the previous hard-coded amounts.
+    CONFIG.usdPerMonth = {
+        stock: 0,
+        borrow: 0,
+        dividend: 0,
+        repay: 0
+    };
+
+    // Helper: compute per-particle USD value from a USD/month target.
+    function perParticleValue(type) {
+        // Determine per-frame spawn probability for this type
+        let perFrameProb = 0;
+        if (type === 'stock' || type === 'borrow') {
+            // spawnRate selects an inflow, split roughly 50/50 between stock and borrow
+            perFrameProb = CONFIG.spawnRate * 0.5;
+        } else {
+            // dividends/repay use outflowRate
+            perFrameProb = CONFIG.outflowRate;
+        }
+
+        const particlesPerMonth = perFrameProb * FPS_EST * SECS_PER_MONTH;
+        if (particlesPerMonth <= 0) {
+            // fallback to small constant
+            return (type === 'stock' || type === 'borrow') ? 50 : 25;
+        }
+        const usdMonth = CONFIG.usdPerMonth[type] || 0;
+        const perParticle = usdMonth / particlesPerMonth;
+        // avoid zero-valued particles
+        return Math.max(1, perParticle);
+    }
 
     // --- State ---
     const STATE = {
@@ -360,13 +403,15 @@
         absorb() {
             // Update Accounting State
             if (this.type === 'stock') {
-                STATE.cash += 50;
-                STATE.equity += 50;
-                pulseEdge('stock');
+                    const amount = Math.round(perParticleValue('stock'));
+                    STATE.cash += amount;
+                    STATE.equity += amount;
+                    pulseEdge('stock');
             } else if (this.type === 'borrow') {
-                STATE.cash += 50;
-                STATE.loan += 50;
-                pulseEdge('borrow');
+                    const amount = Math.round(perParticleValue('borrow'));
+                    STATE.cash += amount;
+                    STATE.loan += amount;
+                    pulseEdge('borrow');
             }
             updateUI();
             this.kill();
@@ -391,16 +436,18 @@
     function processOutflows() {
         // Dividend Logic: If cash is high, pay dividend
         if (STATE.cash > 500 && Math.random() < CONFIG.outflowRate) {
-            STATE.cash -= 25;
-            STATE.equity -= 25;
+            const amount = Math.round(perParticleValue('dividend'));
+            STATE.cash -= amount;
+            STATE.equity -= amount;
             particles.push(new Particle('dividend'));
             updateUI();
         }
 
         // Repayment Logic: If Loan exists and cash is okay
         if (STATE.loan > 0 && STATE.cash > 200 && Math.random() < CONFIG.outflowRate) {
-            STATE.cash -= 25;
-            STATE.loan -= 25;
+            const amount = Math.round(perParticleValue('repay'));
+            STATE.cash -= amount;
+            STATE.loan -= amount;
             particles.push(new Particle('repay'));
             updateUI();
         }
@@ -521,6 +568,57 @@
 
     // Start
     animate();
+
+    // --- Wire up flow controls UI ---
+    (function setupFlowControls(){
+        // Initialize defaults so existing behavior is preserved roughly
+        // Compute a default USD/month that results in ~50 USD per inflow particle
+        try {
+            const perTypeParticlesPerMonth = CONFIG.spawnRate * 0.5 * FPS_EST * SECS_PER_MONTH;
+            const defaultPerParticle = 50;
+            CONFIG.usdPerMonth.stock = Math.round(defaultPerParticle * perTypeParticlesPerMonth);
+            CONFIG.usdPerMonth.borrow = Math.round(defaultPerParticle * perTypeParticlesPerMonth);
+
+            const outflowParticlesPerMonth = CONFIG.outflowRate * FPS_EST * SECS_PER_MONTH;
+            const defaultOutPerParticle = 25;
+            CONFIG.usdPerMonth.dividend = Math.round(defaultOutPerParticle * outflowParticlesPerMonth);
+            CONFIG.usdPerMonth.repay = Math.round(defaultOutPerParticle * outflowParticlesPerMonth);
+        } catch(e) {
+            // fallback
+            CONFIG.usdPerMonth.stock = 200000;
+            CONFIG.usdPerMonth.borrow = 200000;
+            CONFIG.usdPerMonth.dividend = 50000;
+            CONFIG.usdPerMonth.repay = 50000;
+        }
+
+        const stockInput = document.getElementById('stock-usd-month');
+        const borrowInput = document.getElementById('borrow-usd-month');
+        const divInput = document.getElementById('dividend-usd-month');
+        const repayInput = document.getElementById('repay-usd-month');
+        const spawnInput = document.getElementById('spawn-rate-input');
+
+        function updateDisplays(){
+            document.getElementById('stock-usd-month-display').innerText = `$${Number(CONFIG.usdPerMonth.stock).toLocaleString()}`;
+            document.getElementById('borrow-usd-month-display').innerText = `$${Number(CONFIG.usdPerMonth.borrow).toLocaleString()}`;
+            document.getElementById('dividend-usd-month-display').innerText = `$${Number(CONFIG.usdPerMonth.dividend).toLocaleString()}`;
+            document.getElementById('repay-usd-month-display').innerText = `$${Number(CONFIG.usdPerMonth.repay).toLocaleString()}`;
+            document.getElementById('spawn-rate-display').innerText = `${CONFIG.spawnRate.toFixed(3)}`;
+        }
+
+        stockInput.value = CONFIG.usdPerMonth.stock;
+        borrowInput.value = CONFIG.usdPerMonth.borrow;
+        divInput.value = CONFIG.usdPerMonth.dividend;
+        repayInput.value = CONFIG.usdPerMonth.repay;
+        spawnInput.value = CONFIG.spawnRate;
+        updateDisplays();
+
+        stockInput.addEventListener('change', (e)=>{ CONFIG.usdPerMonth.stock = Number(e.target.value || 0); updateDisplays(); });
+        borrowInput.addEventListener('change', (e)=>{ CONFIG.usdPerMonth.borrow = Number(e.target.value || 0); updateDisplays(); });
+        divInput.addEventListener('change', (e)=>{ CONFIG.usdPerMonth.dividend = Number(e.target.value || 0); updateDisplays(); });
+        repayInput.addEventListener('change', (e)=>{ CONFIG.usdPerMonth.repay = Number(e.target.value || 0); updateDisplays(); });
+        spawnInput.addEventListener('input', (e)=>{ CONFIG.spawnRate = Number(e.target.value); updateDisplays(); });
+
+    })();
 
 </script>
 </body>
