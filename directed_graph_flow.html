@@ -10,9 +10,14 @@
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace; }
         #canvas-container { width: 100vw; height: 100vh; }
+        /* Top navbar */
+        .topbar{position:fixed;left:0;right:0;top:0;height:64px;background:#0F4D92;color:#fff;display:flex;align-items:center;justify-content:center;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.12)}
+        .topbar .inner{width:100%;max-width:1100px;display:flex;align-items:center;justify-content:space-between;padding:0 20px}
+        .topbar .brand{display:flex;align-items:center;gap:12px;font-weight:700}
+        .topbar a{color:rgba(255,255,255,0.95);text-decoration:none;margin-left:14px;font-weight:600}
         #ui-layer {
             position: absolute;
-            top: 20px;
+            top: 84px; /* moved down to avoid navbar */
             left: 20px;
             color: #00ffcc;
             pointer-events: auto;
@@ -25,7 +30,7 @@
         /* Control buttons (Stop / Reset) */
         #controls {
             position: absolute;
-            top: 20px;
+            top: 84px; /* moved down to avoid navbar */
             right: 20px;
             z-index: 20;
             display: flex;
@@ -51,6 +56,19 @@
     </style>
 </head>
 <body>
+    <div class="topbar">
+        <div class="inner">
+            <div class="brand">
+                <div style="width:36px;height:36px;border-radius:6px;background:#fff;color:#0F4D92;display:flex;align-items:center;justify-content:center;font-weight:700">Y</div>
+                <div>Investment Game</div>
+            </div>
+            <nav>
+                <a href="index.html">Home</a>
+                <a href="Ponzi.html">Ponzi Visualizer</a>
+                <a href="directed_graph_flow.html">Directed Graph Flow</a>
+            </nav>
+        </div>
+    </div>
 
 <div id="ui-layer">
     <h1>Accounting Singularity</h1>
@@ -209,8 +227,6 @@
             updateCameraFromSph();
         }, {passive:false});
     })();
-
-    // No navbar is inserted on this page — UI lives at the top of the canvas.
 
     // --- Textures & Materials ---
     // Helper to create a glowing dot texture programmatically
