@@ -9,7 +9,7 @@
         #canvas-container { width: 100vw; height: 100vh; }
         #ui-layer {
             position: absolute;
-            top: 84px; /* moved below navbar */
+            top: 20px;
             left: 20px;
             color: #00ffcc;
             pointer-events: auto;
@@ -22,7 +22,7 @@
         /* Control buttons (Stop / Reset) */
         #controls {
             position: absolute;
-            top: 84px; /* align with ui-layer */
+            top: 20px;
             right: 20px;
             z-index: 20;
             display: flex;
@@ -207,13 +207,7 @@
         }, {passive:false});
     })();
 
-    // Insert top navbar into the document (so it's available when script runs)
-    (function insertTopbar(){
-        const topbar = document.createElement('div');
-        topbar.className = 'topbar';
-        topbar.innerHTML = `<div class="inner"><div style="display:flex;align-items:center;gap:12px;font-weight:700"><div style="width:36px;height:36px;border-radius:6px;background:#fff;color:#0F4D92;display:flex;align-items:center;justify-content:center;font-weight:700">Y</div><div>Investment Game</div></div><nav><a href="index.html">Home</a><a href="Ponzi.html">Ponzi Visualizer</a><a href="directed_graph_flow.html">Directed Graph Flow</a></nav></div>`;
-        document.body.appendChild(topbar);
-    })();
+    // No navbar is inserted on this page — UI lives at the top of the canvas.
 
     // --- Textures & Materials ---
     // Helper to create a glowing dot texture programmatically
@@ -658,12 +652,4 @@
 
 </script>
 </body>
-            margin:0;
-            font-family: 'Libre Franklin', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
-            background: var(--page-bg);
-            color: #071727;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            padding:96px 32px 32px 32px; /* leave space for navbar */
-        }
+</html>
