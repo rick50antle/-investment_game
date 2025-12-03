@@ -12,13 +12,34 @@
             top: 20px;
             left: 20px;
             color: #00ffcc;
-            pointer-events: none;
+            pointer-events: auto;
             text-shadow: 0 0 10px #00ffcc;
             background: rgba(0, 0, 0, 0.5);
             padding: 15px;
             border: 1px solid #00ffcc;
             border-radius: 8px;
         }
+        /* Control buttons (Stop / Reset) */
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 20;
+            display: flex;
+            gap: 10px;
+            pointer-events: auto;
+        }
+        .control-btn {
+            background: rgba(0,0,0,0.6);
+            color: #00ffcc;
+            border: 1px solid rgba(0,255,204,0.25);
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 700;
+            backdrop-filter: blur(4px);
+        }
+        .control-btn:hover { background: #00ffcc; color: #001; }
         h1 { margin: 0 0 10px 0; font-size: 1.2rem; text-transform: uppercase; letter-spacing: 2px; }
         .stat { font-size: 1rem; margin-bottom: 5px; }
         .legend { margin-top: 15px; font-size: 0.8rem; opacity: 0.8; }
@@ -40,6 +61,11 @@
         <div class="legend-item"><div class="dot" style="background:white; box-shadow: 0 0 5px white;"></div>Dividend (Out)</div>
         <div class="legend-item"><div class="dot" style="background:red; box-shadow: 0 0 5px red;"></div>Loan Repayment (Out)</div>
     </div>
+</div>
+
+<div id="controls">
+    <button id="stop-btn" class="control-btn">Stop</button>
+    <button id="reset-btn" class="control-btn">Reset</button>
 </div>
 
 <div id="canvas-container"></div>
@@ -250,10 +276,11 @@
            
             // Visuals
             let color, size;
-            if(type === 'stock') { color = CONFIG.colors.stockParticle; size = 0.8; }
-            else if(type === 'borrow') { color = CONFIG.colors.loanParticle; size = 1.0; }
-            else if(type === 'dividend') { color = CONFIG.colors.dividendParticle; size = 0.6; }
-            else if(type === 'repay') { color = CONFIG.colors.repayParticle; size = 0.6; }
+            // Increased particle sizes for better visibility
+            if(type === 'stock') { color = CONFIG.colors.stockParticle; size = 1.4; }
+            else if(type === 'borrow') { color = CONFIG.colors.loanParticle; size = 1.8; }
+            else if(type === 'dividend') { color = CONFIG.colors.dividendParticle; size = 1.2; }
+            else if(type === 'repay') { color = CONFIG.colors.repayParticle; size = 1.2; }
 
             const mat = new THREE.SpriteMaterial({
                 map: createGlowTexture(new THREE.Color(color).getStyle()),
@@ -351,7 +378,9 @@
         }
     }
 
-    // --- Logic Helpers ---
+    // --- Controls & Logic Helpers ---
+    // Running flag — when false, the simulation pauses (no spawning/updates)
+    let running = true;
 
     function pulseEdge(type) {
         edges[type].activeTimer = 1.0;
@@ -412,27 +441,67 @@
         document.getElementById('loan-display').innerText = `Loan: $${STATE.loan.toFixed(0)}`;
     }
 
+    // --- Control Handlers ---
+    function setRunning(val) {
+        running = val;
+        const btn = document.getElementById('stop-btn');
+        btn.innerText = running ? 'Stop' : 'Start';
+    }
+
+    document.getElementById('stop-btn').addEventListener('click', () => {
+        setRunning(!running);
+    });
+
+    document.getElementById('reset-btn').addEventListener('click', () => {
+        // Clear particles
+        particles.forEach(p => { try { p.kill(); } catch(e){} });
+        particles = [];
+
+        // Reset accounting state
+        STATE.cash = 1000;
+        STATE.equity = 1000;
+        STATE.loan = 0;
+        updateUI();
+
+        // Reset node visuals to base sizes
+        Object.keys(nodes).forEach(k => {
+            const n = nodes[k];
+            const s = n.baseSize;
+            n.mesh.scale.set(s, s, s);
+            n.labelSprite.position.y = n.pos.y + s + 1;
+        });
+
+        // Reset edges visuals
+        Object.keys(edges).forEach(k => {
+            edges[k].mesh.material.color.setHex(0x555555);
+            edges[k].mesh.material.opacity = 0.3;
+            edges[k].activeTimer = 0;
+        });
+    });
+
     // --- Main Loop ---
 
     function animate() {
         requestAnimationFrame(animate);
 
-        // 1. Spawn Inflow Particles
-        if (Math.random() < CONFIG.spawnRate) {
-            const type = Math.random() > 0.5 ? 'stock' : 'borrow';
-            particles.push(new Particle(type));
+        if (running) {
+            // 1. Spawn Inflow Particles
+            if (Math.random() < CONFIG.spawnRate) {
+                const type = Math.random() > 0.5 ? 'stock' : 'borrow';
+                particles.push(new Particle(type));
+            }
+
+            // 2. Process Logic
+            processOutflows();
+            updateNodeSizes();
+            updateEdgesVisuals();
+
+            // 3. Update Particles
+            particles.forEach(p => p.update());
+            particles = particles.filter(p => p.active); // Cleanup
         }
 
-        // 2. Process Logic
-        processOutflows();
-        updateNodeSizes();
-        updateEdgesVisuals();
-
-        // 3. Update Particles
-        particles.forEach(p => p.update());
-        particles = particles.filter(p => p.active); // Cleanup
-
-        // 4. Scene Animation
+        // 4. Scene Animation (always animate minimal visuals)
         starField.rotation.y += 0.0005;
         accretionDisk.rotation.z -= 0.01;
        
