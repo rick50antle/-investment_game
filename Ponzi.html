@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ponzi Scheme Visualizer: Histogram Edition</title>
+    <title>Ponzi Scheme Visualizer: Shrinking Operator</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         #canvas-container { width: 100vw; height: 100vh; display: block; }
@@ -73,7 +73,7 @@
 
         #game-over {
             position: absolute;
-            top: 10%;
+            top: 5%;
             left: 50%;
             transform: translateX(-50%);
             font-size: 3rem;
@@ -84,6 +84,12 @@
             text-align: center;
             z-index: 5;
             pointer-events: none;
+            width: 100%;
+        }
+        #stolen-amount {
+            font-size: 2rem;
+            color: #FFD700;
+            margin-bottom: 10px;
         }
         #restart-hint {
             font-size: 1.2rem;
@@ -96,6 +102,7 @@
             background: rgba(0,0,0,0.5);
             padding: 10px;
             border-radius: 5px;
+            display: inline-block;
         }
         
         /* Histogram Labels */
@@ -107,14 +114,14 @@
             text-align: center;
             display: none; /* Hidden until rug pull */
             bottom: 20%;
-            width: 100px;
+            width: 120px;
             transform: translateX(-50%);
             text-shadow: 0 0 5px #000;
         }
-        #histo-1 { left: 20%; color: #00ff00; }
-        #histo-2 { left: 40%; color: #ffff00; }
-        #histo-3 { left: 60%; color: #ff8800; }
-        #histo-4 { left: 80%; color: #ff0000; }
+        #histo-1 { left: 20%; color: #ff0000; } /* Total Loss */
+        #histo-2 { left: 40%; color: #ff4400; } /* Major Loss */
+        #histo-3 { left: 60%; color: #ffff00; } /* Minor Loss */
+        #histo-4 { left: 80%; color: #00ff00; } /* Profit */
 
     </style>
 </head>
@@ -122,33 +129,34 @@
 
     <div id="ui-layer">
         <h1>Ponzi Scheme Anatomy</h1>
-        <p>New investors pay off old ones. Watch colors change as investors "age".</p>
+        <p>The Operator shrinks when paying out large "returns".</p>
         
         <div class="stat-box">
             <div><strong>Total Investors:</strong> <span id="investor-count">1</span></div>
-            <div><strong>Scheme Value:</strong> $<span id="scheme-value">0</span></div>
+            <div><strong>Operator Pot:</strong> $<span id="scheme-value">0</span></div>
         </div>
 
         <div class="legend">
-            <div><span class="dot dot-gold"></span>Operator</div>
+            <div><span class="dot dot-gold"></span>Operator (Center)</div>
             <div><span class="dot dot-green"></span>New Investor</div>
             <div><span class="dot dot-purple"></span>Old Investor</div>
-            <div><span class="dot dot-flow-up"></span>Investment (Up)</div>
-            <div><span class="dot dot-flow-down"></span>Withdrawal (Down)</div>
+            <div><span class="dot dot-flow-up"></span>Large Deposit</div>
+            <div><span class="dot dot-flow-down"></span>Big Withdrawal</div>
         </div>
     </div>
 
     <!-- Histogram Labels (Visible after collapse) -->
-    <div id="histo-1" class="histo-label">PROFIT<br>> 100%</div>
-    <div id="histo-2" class="histo-label">RECOUPED<br>50-100%</div>
-    <div id="histo-3" class="histo-label">RECOUPED<br>1-50%</div>
-    <div id="histo-4" class="histo-label">TOTAL LOSS<br>0%</div>
+    <div id="histo-1" class="histo-label">TOTAL LOSS<br>100% Lost</div>
+    <div id="histo-2" class="histo-label">MAJOR LOSS<br>>50% Lost</div>
+    <div id="histo-3" class="histo-label">MINOR LOSS<br><50% Lost</div>
+    <div id="histo-4" class="histo-label">PROFITers<br>(Early Birds)</div>
 
     <button id="rug-pull-btn">INITIATE RUG PULL</button>
     
     <div id="game-over">
         SCHEME COLLAPSED
-        <div style="font-size: 1rem; color: #fff; margin-bottom: 10px;">Showing Distribution of Returns</div>
+        <div id="stolen-amount"></div>
+        <div style="font-size: 1rem; color: #fff; margin-bottom: 10px;">Labels show: Invested / Withdrawn</div>
         <div id="restart-hint">Click to Restart</div>
     </div>
 
@@ -159,11 +167,13 @@
     <script>
         // --- Configuration ---
         const CONFIG = {
-            addInvestorInterval: 1200, // Slower: 1.2s between new investors
-            cashFlowSpeed: 0.08,       // Slower particles
-            withdrawalChance: 0.05,    // Chance per frame to trigger a withdrawal
-            agingSpeed: 0.0001,        // How fast color shifts from Green to Purple
-            maxInvestors: 200
+            addInvestorInterval: 1000, 
+            cashFlowSpeed: 0.05,        
+            transactionInterval: 400,   
+            withdrawalChance: 0.1,    // Increased to 10% to ensure we see shrinking
+            agingSpeed: 0.0001,        
+            maxInvestors: 200,
+            baseOperatorSize: 2.5
         };
 
         // --- Global Variables ---
@@ -173,31 +183,31 @@
         let cashParticles = []; 
         let isCollapsed = false;
         let lastAdd = 0; 
-        let schemeValue = 0;
+        let lastTransaction = 0;
         
         // --- Classes ---
 
         class InvestorNode {
             constructor(id, parent, position, isRoot = false) {
                 this.id = id;
-                this.parent = parent;
-                this.children = [];
+                this.parent = parent; 
+                this.children = []; 
                 this.position = position.clone();
                 this.targetPos = null; // For histogram
                 this.isRoot = isRoot;
                 this.creationTime = Date.now();
                 
                 // Financials
-                this.invested = isRoot ? 0 : 1000;
+                this.invested = isRoot ? 0 : 5000; // Higher investment amount
                 this.withdrawn = 0;
 
                 // Physics
                 this.velocity = new THREE.Vector3(0, 0, 0);
                 
                 // Visuals
-                const geometry = new THREE.IcosahedronGeometry(isRoot ? 1.5 : 0.6, 1);
+                const geometry = new THREE.IcosahedronGeometry(isRoot ? CONFIG.baseOperatorSize : 0.8, 1);
                 this.baseColor = new THREE.Color(isRoot ? 0xFFD700 : 0x00ffaa);
-                this.targetColor = new THREE.Color(0xaa00ff); // Purple for old age
+                this.targetColor = new THREE.Color(0xaa00ff); 
                 
                 const material = new THREE.MeshPhongMaterial({
                     color: this.baseColor,
@@ -216,17 +226,23 @@
             update(time) {
                 if (!isCollapsed) {
                     // 1. Hover Animation
-                    this.mesh.position.y = this.position.y + Math.sin(time * 2 + this.hoverOffset) * 0.1;
-                    this.mesh.rotation.y += 0.01;
+                    const hoverSpeed = this.isRoot ? 1 : 2;
+                    this.mesh.position.y = this.position.y + Math.sin(time * hoverSpeed + this.hoverOffset) * 0.1;
+                    
+                    // Root rotates slowly
+                    if(this.isRoot) {
+                        this.mesh.rotation.y += 0.005;
+                        this.mesh.rotation.z += 0.002;
+                    } else {
+                        this.mesh.rotation.y += 0.01;
+                    }
 
-                    // 2. Color Aging (Lerp from Green to Purple)
+                    // 2. Color Aging
                     if (!this.isRoot) {
                         const age = Date.now() - this.creationTime;
-                        // Full transition takes about 45 seconds
                         const ageFactor = Math.min(age / 45000, 1); 
                         this.mesh.material.color.lerpColors(this.baseColor, this.targetColor, ageFactor);
                         
-                        // Increase emissive slightly as they get "richer" (older)
                         const r = 0;
                         const g = 0.2 * (1 - ageFactor);
                         const b = 0.4 * ageFactor;
@@ -235,38 +251,39 @@
                 } else {
                     // --- COLLAPSED STATE (Histogram Physics) ---
                     if (this.targetPos) {
-                        // Move towards histogram slot
                         const force = this.targetPos.clone().sub(this.mesh.position).multiplyScalar(0.05);
                         this.velocity.add(force);
-                        this.velocity.multiplyScalar(0.9); // Damping
+                        this.velocity.multiplyScalar(0.9); 
                         this.mesh.position.add(this.velocity);
-                        
-                        // Subtle rotation
                         this.mesh.rotation.x += 0.05;
                     }
                 }
             }
 
             receivePayout() {
-                // Flash white briefly
                 this.mesh.material.emissive.setHex(0xffffff);
                 setTimeout(() => {
                     if(!isCollapsed) {
                         const age = Date.now() - this.creationTime;
                         const ageFactor = Math.min(age / 45000, 1);
-                        // Restore color
                         this.mesh.material.emissive.setRGB(0, 0.2 * (1 - ageFactor), 0.4 * ageFactor);
                     }
-                }, 200);
+                }, 300);
                 
-                // Add to withdrawn amount (simulate 20% payout)
-                this.withdrawn += 200; 
+                // HUGE PAYOUT to ensure Operator shrinks
+                // Random between $5,000 and $25,000
+                const amount = 5000 + Math.floor(Math.random() * 20000);
+                this.withdrawn += amount; 
             }
 
             die() {
                 scene.remove(this.mesh);
                 if (this.mesh.geometry) this.mesh.geometry.dispose();
                 if (this.mesh.material) this.mesh.material.dispose();
+                // If there are children (labels), remove them
+                while(this.mesh.children.length > 0){ 
+                    this.mesh.remove(this.mesh.children[0]); 
+                }
             }
         }
 
@@ -276,10 +293,10 @@
                 this.endPos = endNode.mesh.position.clone();
                 this.progress = 0;
                 this.active = true;
-                this.type = type; // 'investment' (up) or 'withdrawal' (down)
+                this.type = type; 
 
                 const color = type === 'investment' ? 0xffffff : 0xffaa00;
-                const geometry = new THREE.SphereGeometry(0.15, 8, 8);
+                const geometry = new THREE.SphereGeometry(0.4, 16, 16);
                 const material = new THREE.MeshBasicMaterial({ color: color });
                 this.mesh = new THREE.Mesh(geometry, material);
                 this.mesh.position.copy(this.startPos);
@@ -292,8 +309,7 @@
                 this.progress += CONFIG.cashFlowSpeed;
                 this.mesh.position.lerpVectors(this.startPos, this.endPos, this.progress);
 
-                // Scale down at end
-                const scale = 1 - (this.progress * 0.3);
+                const scale = 1 + Math.sin(this.progress * Math.PI) * 0.5;
                 this.mesh.scale.set(scale, scale, scale);
 
                 if (this.progress >= 1) {
@@ -301,17 +317,72 @@
                     scene.remove(this.mesh);
                     this.mesh.geometry.dispose();
                     this.mesh.material.dispose();
-
-                    if (!isCollapsed && this.type === 'investment') {
-                        schemeValue += 100; // Not real logic, just visual score
-                        updateUI();
-                    }
-                    if (!isCollapsed && this.type === 'withdrawal') {
-                        // The particle reached the investor
-                        // Logic handled in triggerWithdrawal, this is just visual
-                    }
+                    
+                    if (!isCollapsed) updateUI();
                 }
             }
+        }
+
+        // --- Helper Functions ---
+
+        function makeTextSprite(message, color) {
+            const fontface = "Arial";
+            const fontsize = 24;
+            const borderThickness = 2;
+            
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 128;
+            const context = canvas.getContext('2d');
+            
+            // Background
+            context.fillStyle = "rgba(0,0,0,0.7)";
+            context.fillRect(0,0,256,128);
+
+            // Text
+            context.font = "Bold " + fontsize + "px " + fontface;
+            context.fillStyle = color;
+            context.textAlign = 'center';
+            context.textBaseline = 'middle';
+            
+            // Split message by newline
+            const lines = message.split('\n');
+            for(let i = 0; i < lines.length; i++) {
+                context.fillText(lines[i], 128, 40 + (i * 30));
+            }
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+            const sprite = new THREE.Sprite(spriteMaterial);
+            sprite.scale.set(4, 2, 1);
+            return sprite;
+        }
+
+        function calculateOperatorPot() {
+             let pot = 0;
+             investors.forEach(inv => {
+                 if (!inv.isRoot) {
+                     pot += (inv.invested - inv.withdrawn);
+                 }
+             });
+             return pot;
+        }
+
+        function updateOperatorSize() {
+            if(!investors[0] || isCollapsed) return;
+            const pot = calculateOperatorPot();
+            
+            // Growth formula: Base size + (Pot / 50,000)
+            let growth = pot / 50000; 
+            if (growth > 12) growth = 12; // Cap max scale
+            if (growth < -0.5) growth = -0.5; // Cap min scale (don't disappear completely)
+            
+            const targetScale = 1 + growth;
+            // Smoothly interpolate
+            const currentScale = investors[0].mesh.scale.x;
+            const newScale = currentScale + (targetScale - currentScale) * 0.05;
+            
+            investors[0].mesh.scale.setScalar(newScale);
         }
 
         // --- Init ---
@@ -321,8 +392,8 @@
             scene.fog = new THREE.FogExp2(0x050505, 0.02);
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-            camera.position.set(0, 5, 40);
-            camera.lookAt(0, -5, 0);
+            camera.position.set(0, 0, 60); 
+            camera.lookAt(0, 0, 0);
 
             renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -333,21 +404,20 @@
             const dirLight = new THREE.DirectionalLight(0xffffff, 1);
             dirLight.position.set(10, 20, 10);
             scene.add(dirLight);
-            const pointLight = new THREE.PointLight(0x00ffaa, 0.5, 50);
+            const pointLight = new THREE.PointLight(0x00ffaa, 1, 50); 
+            pointLight.position.set(0,0,0);
             scene.add(pointLight);
 
             // Floor
             const gridHelper = new THREE.GridHelper(100, 50, 0x333333, 0x111111);
-            gridHelper.position.y = -15;
+            gridHelper.position.y = -20; 
             scene.add(gridHelper);
 
             window.addEventListener('resize', onWindowResize, false);
             document.getElementById('rug-pull-btn').addEventListener('click', triggerRugPull);
             document.getElementById('restart-hint').addEventListener('click', resetSimulation);
             
-            // Camera Orbit Logic
             setupCameraControls();
-
             resetSimulation();
             animate();
         }
@@ -366,13 +436,12 @@
                         y: e.offsetY - previousMousePosition.y
                     };
                     
-                    // Allow rotation around 0,0,0
                     const rotSpeed = 0.005;
                     const x = camera.position.x;
                     const z = camera.position.z;
                     camera.position.x = x * Math.cos(deltaMove.x * rotSpeed) - z * Math.sin(deltaMove.x * rotSpeed);
                     camera.position.z = x * Math.sin(deltaMove.x * rotSpeed) + z * Math.cos(deltaMove.x * rotSpeed);
-                    camera.lookAt(0, -5, 0);
+                    camera.lookAt(0, 0, 0); 
                 }
                 previousMousePosition = { x: e.offsetX, y: e.offsetY };
             });
@@ -395,55 +464,39 @@
             connections = [];
             cashParticles = [];
             isCollapsed = false;
-            schemeValue = 0;
             
             document.getElementById('game-over').style.display = 'none';
             document.getElementById('rug-pull-btn').style.display = 'block';
-            
-            // Hide histogram labels
             document.querySelectorAll('.histo-label').forEach(el => el.style.display = 'none');
 
-            // Reset Camera
-            camera.position.set(0, 5, 40);
-            camera.lookAt(0, -5, 0);
+            camera.position.set(0, 0, 60);
+            camera.lookAt(0, 0, 0);
 
-            // Create Root
-            const root = new InvestorNode(0, null, new THREE.Vector3(0, 10, 0), true);
+            // Create Root at Center (0,0,0)
+            const root = new InvestorNode(0, null, new THREE.Vector3(0, 0, 0), true);
             investors.push(root);
 
             updateUI();
         }
 
-        // --- Logic ---
-
         function addInvestor() {
             if (isCollapsed || investors.length >= CONFIG.maxInvestors) return;
 
-            // Pick parent: Bias slightly towards nodes with fewer children
-            const eligibleParents = investors.filter(i => i.children.length < 4);
-            const parent = eligibleParents.length > 0 
-                ? eligibleParents[Math.floor(Math.random() * eligibleParents.length)]
-                : investors[Math.floor(Math.random() * investors.length)];
+            // SPHERICAL POSITIONING
+            const radius = 12 + (Math.cbrt(investors.length) * 4); 
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos((Math.random() * 2) - 1);
+            const x = radius * Math.sin(phi) * Math.cos(theta);
+            const y = radius * Math.sin(phi) * Math.sin(theta);
+            const z = radius * Math.cos(phi);
 
-            const levelHeight = 3;
-            const radiusIncrement = 2.5;
-            
-            // Calculate random position in a cone shape
-            const level = Math.abs(Math.floor((parent.position.y - 10) / levelHeight)) + 1;
-            const radius = level * radiusIncrement;
-            const angle = Math.random() * Math.PI * 2;
-            
-            const x = Math.cos(angle) * radius + (Math.random()-0.5)*2;
-            const z = Math.sin(angle) * radius + (Math.random()-0.5)*2;
-            const y = parent.position.y - levelHeight + (Math.random()-0.5);
-
-            const node = new InvestorNode(investors.length, parent, new THREE.Vector3(x, y, z));
+            const node = new InvestorNode(investors.length, investors[0], new THREE.Vector3(x, y, z));
             investors.push(node);
-            parent.children.push(node);
+            investors[0].children.push(node);
 
             // Tube Connection
-            const geometry = new THREE.BufferGeometry().setFromPoints([parent.position, node.position]);
-            const material = new THREE.LineBasicMaterial({ color: 0x004422, transparent: true, opacity: 0.3 });
+            const geometry = new THREE.BufferGeometry().setFromPoints([investors[0].position, node.position]);
+            const material = new THREE.LineBasicMaterial({ color: 0x004422, transparent: true, opacity: 0.2 });
             const line = new THREE.Line(geometry, material);
             scene.add(line);
             connections.push({ mesh: line });
@@ -454,35 +507,26 @@
         function triggerCashFlow() {
             if (isCollapsed) return;
 
+            if (Date.now() - lastTransaction < CONFIG.transactionInterval) return;
+            lastTransaction = Date.now();
+
             // 1. Upward Flow (Investment)
-            const count = Math.max(1, Math.floor(investors.length / 10));
-            for(let i=0; i<count; i++) {
-                const idx = Math.floor(Math.random() * (investors.length - 1)) + 1;
-                const inv = investors[idx];
-                if (inv && inv.parent) {
-                    cashParticles.push(new CashParticle(inv, inv.parent, 'investment'));
-                }
+            const idx = Math.floor(Math.random() * (investors.length - 1)) + 1;
+            const inv = investors[idx];
+            if (inv) {
+                cashParticles.push(new CashParticle(inv, investors[0], 'investment'));
             }
 
-            // 2. Downward Flow (Withdrawals/Payouts)
-            // Older investors are more likely to withdraw
+            // 2. Downward Flow (Withdrawals)
             if (Math.random() < CONFIG.withdrawalChance && investors.length > 5) {
-                // Find eligible investors (not root, created a while ago)
                 const now = Date.now();
-                const eligible = investors.filter(inv => !inv.isRoot && (now - inv.creationTime > 5000));
+                const eligible = investors.filter(inv => !inv.isRoot && (now - inv.creationTime > 4000));
                 
                 if (eligible.length > 0) {
                     const luckyIdx = Math.floor(Math.random() * eligible.length);
                     const luckyInvestor = eligible[luckyIdx];
-                    
-                    // Add money
                     luckyInvestor.receivePayout();
-                    schemeValue -= 200; // Scheme loses money
-                    
-                    // Visual from parent down to them
-                    if (luckyInvestor.parent) {
-                        cashParticles.push(new CashParticle(luckyInvestor.parent, luckyInvestor, 'withdrawal'));
-                    }
+                    cashParticles.push(new CashParticle(investors[0], luckyInvestor, 'withdrawal'));
                 }
             }
         }
@@ -491,60 +535,60 @@
             if (isCollapsed) return;
             isCollapsed = true;
 
-            // 1. Remove Root & Lines
+            const stolenAmount = calculateOperatorPot();
+            document.getElementById('stolen-amount').innerHTML = `OPERATOR STOLE: <br>$${stolenAmount.toLocaleString()}`;
+
             const root = investors[0];
             scene.remove(root.mesh);
             connections.forEach(c => scene.remove(c.mesh));
             connections = [];
 
-            // 2. Setup Histogram Bins
-            // We define 4 X-positions for the columns
-            // Screen width goes roughly from -30 to 30 at this zoom
             const binX = [-15, -5, 5, 15]; 
-            const binCounts = [0, 0, 0, 0]; // To track stack height
+            const binCounts = [0, 0, 0, 0]; 
 
-            // 3. Assign Targets
+            // Process investors for collapse
             for (let i = 1; i < investors.length; i++) {
                 const inv = investors[i];
-                const roi = (inv.withdrawn / inv.invested); // 0 to >1
+                const net = inv.invested - inv.withdrawn;
+                const lossRatio = net / inv.invested; 
                 
-                let binIndex = 3; // Default: Total Loss
-                if (roi > 1.0) binIndex = 0;      // Profit
-                else if (roi >= 0.5) binIndex = 1; // Good recovery
-                else if (roi > 0) binIndex = 2;    // Bad recovery
+                let binIndex = 0; 
+                if (lossRatio >= 1.0) binIndex = 0;      
+                else if (lossRatio >= 0.5) binIndex = 1; 
+                else if (lossRatio > 0) binIndex = 2;    
+                else binIndex = 3;                       
                 
-                // Determine target position
-                const x = binX[binIndex] + (Math.random() - 0.5) * 2; // Add jitter to X
-                const z = (Math.random() - 0.5) * 6; // Random depth
-                const y = -15 + (binCounts[binIndex] * 1.2) + 0.6; // Stack upwards from floor (-15)
+                const x = binX[binIndex] + (Math.random() - 0.5) * 2; 
+                const z = (Math.random() - 0.5) * 6; 
+                const y = -20 + (binCounts[binIndex] * 1.6) + 0.8; 
                 
                 binCounts[binIndex]++;
                 inv.targetPos = new THREE.Vector3(x, y, z);
                 
-                // Color code the outcome?
-                if(binIndex === 0) inv.mesh.material.color.setHex(0x00ff00); // Green
-                else if(binIndex === 1) inv.mesh.material.color.setHex(0xffff00); // Yellow
-                else if(binIndex === 2) inv.mesh.material.color.setHex(0xff8800); // Orange
-                else inv.mesh.material.color.setHex(0xff0000); // Red
+                let textColor = "#ffffff";
+                if(binIndex === 0) { inv.mesh.material.color.setHex(0xff0000); textColor="#ff0000"; }
+                else if(binIndex === 1) { inv.mesh.material.color.setHex(0xff4400); textColor="#ff4400"; }
+                else if(binIndex === 2) { inv.mesh.material.color.setHex(0xffff00); textColor="#ffff00"; }
+                else { inv.mesh.material.color.setHex(0x00ff00); textColor="#00ff00"; }
                 
                 inv.mesh.material.emissive.setHex(0x000000);
+
+                // --- ADD LABEL ---
+                // Format: In: 5000 / Out: 2000
+                const labelText = `In: $${inv.invested}\nOut: $${inv.withdrawn}`;
+                const sprite = makeTextSprite(labelText, textColor);
+                sprite.position.set(0, 1.5, 0); // Position above sphere
+                inv.mesh.add(sprite);
             }
 
-            // UI Updates
             document.getElementById('rug-pull-btn').style.display = 'none';
             document.getElementById('game-over').style.display = 'block';
-            
-            // Show Histogram Labels
             document.querySelectorAll('.histo-label').forEach(el => el.style.display = 'block');
-            
-            // Move camera back to see the whole graph
-            // Smooth move would be nice, but jump is fine for now
-            // camera.position.set(0, 5, 50);
         }
 
         function updateUI() {
             document.getElementById('investor-count').innerText = investors.length;
-            document.getElementById('scheme-value').innerText = schemeValue.toLocaleString();
+            document.getElementById('scheme-value').innerText = calculateOperatorPot().toLocaleString();
         }
 
         function onWindowResize() {
@@ -560,10 +604,11 @@
             if (!isCollapsed && Date.now() - lastAdd > CONFIG.addInvestorInterval) {
                 addInvestor();
                 lastAdd = Date.now();
-                // Viral growth: slightly speed up interval over time
                 if (CONFIG.addInvestorInterval > 400) CONFIG.addInvestorInterval -= 2;
             }
 
+            // Grow Operator Logic
+            updateOperatorSize();
             triggerCashFlow();
 
             investors.forEach(inv => inv.update(time));
@@ -571,13 +616,6 @@
             for (let i = cashParticles.length - 1; i >= 0; i--) {
                 cashParticles[i].update();
                 if (!cashParticles[i].active) cashParticles.splice(i, 1);
-            }
-
-            // Auto-rotate camera slightly if collapsed to show off the 3D histogram
-            if(isCollapsed) {
-                // camera.position.x = Math.sin(time * 0.2) * 50;
-                // camera.position.z = Math.cos(time * 0.2) * 50;
-                // camera.lookAt(0, -5, 0);
             }
 
             renderer.render(scene, camera);
