@@ -10,12 +10,17 @@
         
         #ui-layer {
             position: absolute;
-            top: 20px;
+            top: 84px; /* moved down to avoid navbar */
             left: 20px;
             color: #00ffaa;
-            pointer-events: none;
+            pointer-events: auto;
             text-shadow: 0 0 10px rgba(0, 255, 170, 0.5);
         }
+
+        /* Top navbar */
+        .topbar{position:fixed;left:0;right:0;top:0;height:64px;background:#0F4D92;color:#fff;display:flex;align-items:center;justify-content:center;z-index:1000}
+        .topbar .inner{width:100%;max-width:1100px;display:flex;align-items:center;justify-content:space-between;padding:0 20px}
+        .topbar a{color:rgba(255,255,255,0.95);text-decoration:none;margin-left:14px;font-weight:600}
 
         h1 { margin: 0; font-size: 1.5rem; letter-spacing: 2px; text-transform: uppercase; }
         p { font-size: 0.9rem; color: #aaa; max-width: 300px; line-height: 1.4; }
@@ -126,6 +131,19 @@
     </style>
 </head>
 <body>
+    <div class="topbar">
+        <div class="inner">
+            <div style="display:flex;align-items:center;gap:12px;font-weight:700">
+                <div style="width:36px;height:36px;border-radius:6px;background:#fff;color:#0F4D92;display:flex;align-items:center;justify-content:center;font-weight:700">Y</div>
+                <div>Investment Game</div>
+            </div>
+            <nav>
+                <a href="index.html">Home</a>
+                <a href="Ponzi.html">Ponzi Visualizer</a>
+                <a href="directed_graph_flow.html">Directed Graph Flow</a>
+            </nav>
+        </div>
+    </div>
 
     <div id="ui-layer">
         <h1>Ponzi Scheme Anatomy</h1>
