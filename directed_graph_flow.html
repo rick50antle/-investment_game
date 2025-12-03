@@ -149,7 +149,6 @@
     // Fog for depth
     scene.fog = new THREE.FogExp2(0x050505, 0.002);
 
-    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     // We'll control the camera with a spherical controller so users can rotate/zoom
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     // Initial spherical coordinates (radius, theta, phi)
