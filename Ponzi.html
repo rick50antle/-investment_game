@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ponzi Scheme Visualizer: Histogram Edition</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #canvas-container { width: 100vw; height: 100vh; display: block; }
+        
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #00ffaa;
+            pointer-events: none;
+            text-shadow: 0 0 10px rgba(0, 255, 170, 0.5);
+        }
+
+        h1 { margin: 0; font-size: 1.5rem; letter-spacing: 2px; text-transform: uppercase; }
+        p { font-size: 0.9rem; color: #aaa; max-width: 300px; line-height: 1.4; }
+
+        .stat-box {
+            margin-top: 15px;
+            padding: 10px;
+            background: rgba(0, 20, 10, 0.8);
+            border: 1px solid #00ffaa;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        #rug-pull-btn {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #ff0044;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            cursor: pointer;
+            border-radius: 4px;
+            box-shadow: 0 0 20px rgba(255, 0, 68, 0.6);
+            transition: all 0.2s;
+            pointer-events: auto;
+            z-index: 10;
+        }
+
+        #rug-pull-btn:hover {
+            background: #ff3366;
+            transform: translateX(-50%) scale(1.05);
+            box-shadow: 0 0 40px rgba(255, 0, 68, 1);
+        }
+
+        #rug-pull-btn:active {
+            transform: translateX(-50%) scale(0.95);
+        }
+
+        .legend {
+            margin-top: 10px;
+            font-size: 0.8rem;
+        }
+        .dot { height: 10px; width: 10px; display: inline-block; border-radius: 50%; margin-right: 5px; }
+        .dot-gold { background: #FFD700; box-shadow: 0 0 5px #FFD700; }
+        .dot-green { background: #00ffaa; box-shadow: 0 0 5px #00ffaa; }
+        .dot-purple { background: #aa00ff; box-shadow: 0 0 5px #aa00ff; }
+        .dot-flow-up { background: #ffffff; box-shadow: 0 0 5px #ffffff; }
+        .dot-flow-down { background: #ffaa00; box-shadow: 0 0 5px #ffaa00; }
+
+        #game-over {
+            position: absolute;
+            top: 10%;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 3rem;
+            color: #ff0044;
+            font-weight: bold;
+            display: none;
+            text-shadow: 0 0 30px rgba(255, 0, 0, 0.8);
+            text-align: center;
+            z-index: 5;
+            pointer-events: none;
+        }
+        #restart-hint {
+            font-size: 1.2rem;
+            color: white;
+            margin-top: 20px;
+            opacity: 0.8;
+            cursor: pointer;
+            text-decoration: underline;
+            pointer-events: auto;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        /* Histogram Labels */
+        .histo-label {
+            position: absolute;
+            color: white;
+            font-size: 0.8rem;
+            font-weight: bold;
+            text-align: center;
+            display: none; /* Hidden until rug pull */
+            bottom: 20%;
+            width: 100px;
+            transform: translateX(-50%);
+            text-shadow: 0 0 5px #000;
+        }
+        #histo-1 { left: 20%; color: #00ff00; }
+        #histo-2 { left: 40%; color: #ffff00; }
+        #histo-3 { left: 60%; color: #ff8800; }
+        #histo-4 { left: 80%; color: #ff0000; }
+
+    </style>
+</head>
+<body>
+
+    <div id="ui-layer">
+        <h1>Ponzi Scheme Anatomy</h1>
+        <p>New investors pay off old ones. Watch colors change as investors "age".</p>
+        
+        <div class="stat-box">
+            <div><strong>Total Investors:</strong> <span id="investor-count">1</span></div>
+            <div><strong>Scheme Value:</strong> $<span id="scheme-value">0</span></div>
+        </div>
+
+        <div class="legend">
+            <div><span class="dot dot-gold"></span>Operator</div>
+            <div><span class="dot dot-green"></span>New Investor</div>
+            <div><span class="dot dot-purple"></span>Old Investor</div>
+            <div><span class="dot dot-flow-up"></span>Investment (Up)</div>
+            <div><span class="dot dot-flow-down"></span>Withdrawal (Down)</div>
+        </div>
+    </div>
+
+    <!-- Histogram Labels (Visible after collapse) -->
+    <div id="histo-1" class="histo-label">PROFIT<br>> 100%</div>
+    <div id="histo-2" class="histo-label">RECOUPED<br>50-100%</div>
+    <div id="histo-3" class="histo-label">RECOUPED<br>1-50%</div>
+    <div id="histo-4" class="histo-label">TOTAL LOSS<br>0%</div>
+
+    <button id="rug-pull-btn">INITIATE RUG PULL</button>
+    
+    <div id="game-over">
+        SCHEME COLLAPSED
+        <div style="font-size: 1rem; color: #fff; margin-bottom: 10px;">Showing Distribution of Returns</div>
+        <div id="restart-hint">Click to Restart</div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <script>
+        // --- Configuration ---
+        const CONFIG = {
+            addInvestorInterval: 1200, // Slower: 1.2s between new investors
+            cashFlowSpeed: 0.08,       // Slower particles
+            withdrawalChance: 0.05,    // Chance per frame to trigger a withdrawal
+            agingSpeed: 0.0001,        // How fast color shifts from Green to Purple
+            maxInvestors: 200
+        };
+
+        // --- Global Variables ---
+        let scene, camera, renderer;
+        let investors = []; 
+        let connections = []; 
+        let cashParticles = []; 
+        let isCollapsed = false;
+        let lastAdd = 0; 
+        let schemeValue = 0;
+        
+        // --- Classes ---
+
+        class InvestorNode {
+            constructor(id, parent, position, isRoot = false) {
+                this.id = id;
+                this.parent = parent;
+                this.children = [];
+                this.position = position.clone();
+                this.targetPos = null; // For histogram
+                this.isRoot = isRoot;
+                this.creationTime = Date.now();
+                
+                // Financials
+                this.invested = isRoot ? 0 : 1000;
+                this.withdrawn = 0;
+
+                // Physics
+                this.velocity = new THREE.Vector3(0, 0, 0);
+                
+                // Visuals
+                const geometry = new THREE.IcosahedronGeometry(isRoot ? 1.5 : 0.6, 1);
+                this.baseColor = new THREE.Color(isRoot ? 0xFFD700 : 0x00ffaa);
+                this.targetColor = new THREE.Color(0xaa00ff); // Purple for old age
+                
+                const material = new THREE.MeshPhongMaterial({
+                    color: this.baseColor,
+                    emissive: isRoot ? 0xaa6600 : 0x002211,
+                    shininess: 100,
+                    flatShading: true
+                });
+                
+                this.mesh = new THREE.Mesh(geometry, material);
+                this.mesh.position.copy(position);
+                scene.add(this.mesh);
+
+                this.hoverOffset = Math.random() * 100;
+            }
+
+            update(time) {
+                if (!isCollapsed) {
+                    // 1. Hover Animation
+                    this.mesh.position.y = this.position.y + Math.sin(time * 2 + this.hoverOffset) * 0.1;
+                    this.mesh.rotation.y += 0.01;
+
+                    // 2. Color Aging (Lerp from Green to Purple)
+                    if (!this.isRoot) {
+                        const age = Date.now() - this.creationTime;
+                        // Full transition takes about 45 seconds
+                        const ageFactor = Math.min(age / 45000, 1); 
+                        this.mesh.material.color.lerpColors(this.baseColor, this.targetColor, ageFactor);
+                        
+                        // Increase emissive slightly as they get "richer" (older)
+                        const r = 0;
+                        const g = 0.2 * (1 - ageFactor);
+                        const b = 0.4 * ageFactor;
+                        this.mesh.material.emissive.setRGB(r, g, b);
+                    }
+                } else {
+                    // --- COLLAPSED STATE (Histogram Physics) ---
+                    if (this.targetPos) {
+                        // Move towards histogram slot
+                        const force = this.targetPos.clone().sub(this.mesh.position).multiplyScalar(0.05);
+                        this.velocity.add(force);
+                        this.velocity.multiplyScalar(0.9); // Damping
+                        this.mesh.position.add(this.velocity);
+                        
+                        // Subtle rotation
+                        this.mesh.rotation.x += 0.05;
+                    }
+                }
+            }
+
+            receivePayout() {
+                // Flash white briefly
+                this.mesh.material.emissive.setHex(0xffffff);
+                setTimeout(() => {
+                    if(!isCollapsed) {
+                        const age = Date.now() - this.creationTime;
+                        const ageFactor = Math.min(age / 45000, 1);
+                        // Restore color
+                        this.mesh.material.emissive.setRGB(0, 0.2 * (1 - ageFactor), 0.4 * ageFactor);
+                    }
+                }, 200);
+                
+                // Add to withdrawn amount (simulate 20% payout)
+                this.withdrawn += 200; 
+            }
+
+            die() {
+                scene.remove(this.mesh);
+                if (this.mesh.geometry) this.mesh.geometry.dispose();
+                if (this.mesh.material) this.mesh.material.dispose();
+            }
+        }
+
+        class CashParticle {
+            constructor(startNode, endNode, type = 'investment') {
+                this.startPos = startNode.mesh.position.clone();
+                this.endPos = endNode.mesh.position.clone();
+                this.progress = 0;
+                this.active = true;
+                this.type = type; // 'investment' (up) or 'withdrawal' (down)
+
+                const color = type === 'investment' ? 0xffffff : 0xffaa00;
+                const geometry = new THREE.SphereGeometry(0.15, 8, 8);
+                const material = new THREE.MeshBasicMaterial({ color: color });
+                this.mesh = new THREE.Mesh(geometry, material);
+                this.mesh.position.copy(this.startPos);
+                scene.add(this.mesh);
+            }
+
+            update() {
+                if (!this.active) return;
+
+                this.progress += CONFIG.cashFlowSpeed;
+                this.mesh.position.lerpVectors(this.startPos, this.endPos, this.progress);
+
+                // Scale down at end
+                const scale = 1 - (this.progress * 0.3);
+                this.mesh.scale.set(scale, scale, scale);
+
+                if (this.progress >= 1) {
+                    this.active = false;
+                    scene.remove(this.mesh);
+                    this.mesh.geometry.dispose();
+                    this.mesh.material.dispose();
+
+                    if (!isCollapsed && this.type === 'investment') {
+                        schemeValue += 100; // Not real logic, just visual score
+                        updateUI();
+                    }
+                    if (!isCollapsed && this.type === 'withdrawal') {
+                        // The particle reached the investor
+                        // Logic handled in triggerWithdrawal, this is just visual
+                    }
+                }
+            }
+        }
+
+        // --- Init ---
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050505, 0.02);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 40);
+            camera.lookAt(0, -5, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+            // Lighting
+            scene.add(new THREE.AmbientLight(0x404040));
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(10, 20, 10);
+            scene.add(dirLight);
+            const pointLight = new THREE.PointLight(0x00ffaa, 0.5, 50);
+            scene.add(pointLight);
+
+            // Floor
+            const gridHelper = new THREE.GridHelper(100, 50, 0x333333, 0x111111);
+            gridHelper.position.y = -15;
+            scene.add(gridHelper);
+
+            window.addEventListener('resize', onWindowResize, false);
+            document.getElementById('rug-pull-btn').addEventListener('click', triggerRugPull);
+            document.getElementById('restart-hint').addEventListener('click', resetSimulation);
+            
+            // Camera Orbit Logic
+            setupCameraControls();
+
+            resetSimulation();
+            animate();
+        }
+
+        function setupCameraControls() {
+            let isDragging = false;
+            let previousMousePosition = { x: 0, y: 0 };
+            const dom = document.getElementById('canvas-container');
+
+            dom.addEventListener('mousedown', () => isDragging = true);
+            window.addEventListener('mouseup', () => isDragging = false);
+            dom.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const deltaMove = {
+                        x: e.offsetX - previousMousePosition.x,
+                        y: e.offsetY - previousMousePosition.y
+                    };
+                    
+                    // Allow rotation around 0,0,0
+                    const rotSpeed = 0.005;
+                    const x = camera.position.x;
+                    const z = camera.position.z;
+                    camera.position.x = x * Math.cos(deltaMove.x * rotSpeed) - z * Math.sin(deltaMove.x * rotSpeed);
+                    camera.position.z = x * Math.sin(deltaMove.x * rotSpeed) + z * Math.cos(deltaMove.x * rotSpeed);
+                    camera.lookAt(0, -5, 0);
+                }
+                previousMousePosition = { x: e.offsetX, y: e.offsetY };
+            });
+        }
+
+        function resetSimulation() {
+            investors.forEach(inv => inv.die());
+            connections.forEach(obj => {
+                scene.remove(obj.mesh);
+                obj.mesh.geometry.dispose();
+                obj.mesh.material.dispose();
+            });
+            cashParticles.forEach(p => {
+                scene.remove(p.mesh);
+                p.mesh.geometry.dispose();
+                p.mesh.material.dispose();
+            });
+
+            investors = [];
+            connections = [];
+            cashParticles = [];
+            isCollapsed = false;
+            schemeValue = 0;
+            
+            document.getElementById('game-over').style.display = 'none';
+            document.getElementById('rug-pull-btn').style.display = 'block';
+            
+            // Hide histogram labels
+            document.querySelectorAll('.histo-label').forEach(el => el.style.display = 'none');
+
+            // Reset Camera
+            camera.position.set(0, 5, 40);
+            camera.lookAt(0, -5, 0);
+
+            // Create Root
+            const root = new InvestorNode(0, null, new THREE.Vector3(0, 10, 0), true);
+            investors.push(root);
+
+            updateUI();
+        }
+
+        // --- Logic ---
+
+        function addInvestor() {
+            if (isCollapsed || investors.length >= CONFIG.maxInvestors) return;
+
+            // Pick parent: Bias slightly towards nodes with fewer children
+            const eligibleParents = investors.filter(i => i.children.length < 4);
+            const parent = eligibleParents.length > 0 
+                ? eligibleParents[Math.floor(Math.random() * eligibleParents.length)]
+                : investors[Math.floor(Math.random() * investors.length)];
+
+            const levelHeight = 3;
+            const radiusIncrement = 2.5;
+            
+            // Calculate random position in a cone shape
+            const level = Math.abs(Math.floor((parent.position.y - 10) / levelHeight)) + 1;
+            const radius = level * radiusIncrement;
+            const angle = Math.random() * Math.PI * 2;
+            
+            const x = Math.cos(angle) * radius + (Math.random()-0.5)*2;
+            const z = Math.sin(angle) * radius + (Math.random()-0.5)*2;
+            const y = parent.position.y - levelHeight + (Math.random()-0.5);
+
+            const node = new InvestorNode(investors.length, parent, new THREE.Vector3(x, y, z));
+            investors.push(node);
+            parent.children.push(node);
+
+            // Tube Connection
+            const geometry = new THREE.BufferGeometry().setFromPoints([parent.position, node.position]);
+            const material = new THREE.LineBasicMaterial({ color: 0x004422, transparent: true, opacity: 0.3 });
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+            connections.push({ mesh: line });
+
+            updateUI();
+        }
+
+        function triggerCashFlow() {
+            if (isCollapsed) return;
+
+            // 1. Upward Flow (Investment)
+            const count = Math.max(1, Math.floor(investors.length / 10));
+            for(let i=0; i<count; i++) {
+                const idx = Math.floor(Math.random() * (investors.length - 1)) + 1;
+                const inv = investors[idx];
+                if (inv && inv.parent) {
+                    cashParticles.push(new CashParticle(inv, inv.parent, 'investment'));
+                }
+            }
+
+            // 2. Downward Flow (Withdrawals/Payouts)
+            // Older investors are more likely to withdraw
+            if (Math.random() < CONFIG.withdrawalChance && investors.length > 5) {
+                // Find eligible investors (not root, created a while ago)
+                const now = Date.now();
+                const eligible = investors.filter(inv => !inv.isRoot && (now - inv.creationTime > 5000));
+                
+                if (eligible.length > 0) {
+                    const luckyIdx = Math.floor(Math.random() * eligible.length);
+                    const luckyInvestor = eligible[luckyIdx];
+                    
+                    // Add money
+                    luckyInvestor.receivePayout();
+                    schemeValue -= 200; // Scheme loses money
+                    
+                    // Visual from parent down to them
+                    if (luckyInvestor.parent) {
+                        cashParticles.push(new CashParticle(luckyInvestor.parent, luckyInvestor, 'withdrawal'));
+                    }
+                }
+            }
+        }
+
+        function triggerRugPull() {
+            if (isCollapsed) return;
+            isCollapsed = true;
+
+            // 1. Remove Root & Lines
+            const root = investors[0];
+            scene.remove(root.mesh);
+            connections.forEach(c => scene.remove(c.mesh));
+            connections = [];
+
+            // 2. Setup Histogram Bins
+            // We define 4 X-positions for the columns
+            // Screen width goes roughly from -30 to 30 at this zoom
+            const binX = [-15, -5, 5, 15]; 
+            const binCounts = [0, 0, 0, 0]; // To track stack height
+
+            // 3. Assign Targets
+            for (let i = 1; i < investors.length; i++) {
+                const inv = investors[i];
+                const roi = (inv.withdrawn / inv.invested); // 0 to >1
+                
+                let binIndex = 3; // Default: Total Loss
+                if (roi > 1.0) binIndex = 0;      // Profit
+                else if (roi >= 0.5) binIndex = 1; // Good recovery
+                else if (roi > 0) binIndex = 2;    // Bad recovery
+                
+                // Determine target position
+                const x = binX[binIndex] + (Math.random() - 0.5) * 2; // Add jitter to X
+                const z = (Math.random() - 0.5) * 6; // Random depth
+                const y = -15 + (binCounts[binIndex] * 1.2) + 0.6; // Stack upwards from floor (-15)
+                
+                binCounts[binIndex]++;
+                inv.targetPos = new THREE.Vector3(x, y, z);
+                
+                // Color code the outcome?
+                if(binIndex === 0) inv.mesh.material.color.setHex(0x00ff00); // Green
+                else if(binIndex === 1) inv.mesh.material.color.setHex(0xffff00); // Yellow
+                else if(binIndex === 2) inv.mesh.material.color.setHex(0xff8800); // Orange
+                else inv.mesh.material.color.setHex(0xff0000); // Red
+                
+                inv.mesh.material.emissive.setHex(0x000000);
+            }
+
+            // UI Updates
+            document.getElementById('rug-pull-btn').style.display = 'none';
+            document.getElementById('game-over').style.display = 'block';
+            
+            // Show Histogram Labels
+            document.querySelectorAll('.histo-label').forEach(el => el.style.display = 'block');
+            
+            // Move camera back to see the whole graph
+            // Smooth move would be nice, but jump is fine for now
+            // camera.position.set(0, 5, 50);
+        }
+
+        function updateUI() {
+            document.getElementById('investor-count').innerText = investors.length;
+            document.getElementById('scheme-value').innerText = schemeValue.toLocaleString();
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = Date.now() * 0.001;
+
+            if (!isCollapsed && Date.now() - lastAdd > CONFIG.addInvestorInterval) {
+                addInvestor();
+                lastAdd = Date.now();
+                // Viral growth: slightly speed up interval over time
+                if (CONFIG.addInvestorInterval > 400) CONFIG.addInvestorInterval -= 2;
+            }
+
+            triggerCashFlow();
+
+            investors.forEach(inv => inv.update(time));
+
+            for (let i = cashParticles.length - 1; i >= 0; i--) {
+                cashParticles[i].update();
+                if (!cashParticles[i].active) cashParticles.splice(i, 1);
+            }
+
+            // Auto-rotate camera slightly if collapsed to show off the 3D histogram
+            if(isCollapsed) {
+                // camera.position.x = Math.sin(time * 0.2) * 50;
+                // camera.position.z = Math.cos(time * 0.2) * 50;
+                // camera.lookAt(0, -5, 0);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        init();
+
+    </script>
+</body>
+</html>
